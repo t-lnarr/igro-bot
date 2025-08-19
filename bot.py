@@ -10,7 +10,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🛒 Store Gir", web_app=WebAppInfo(url="https://igrostore.pythonanywhere.com"))]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Hoşgeldiň! 👋", reply_markup=reply_markup)
+    await update.message.reply_text("IGRO Store Hoşgeldiň! 👋", reply_markup=reply_markup)
 
 app = Application.builder().token(TOKEN).build()
 app.add_handler(CommandHandler("start", start))
