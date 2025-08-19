@@ -1,7 +1,9 @@
+import os
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-TOKEN = "8459074208:AAFupZjuREZIYyq0FTYwfC304Hcp4F9BMCg"
+# TOKEN artık environment variable’dan okunacak
+TOKEN = os.getenv("BOT_TOKEN")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
