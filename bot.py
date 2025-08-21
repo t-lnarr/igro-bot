@@ -177,9 +177,9 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     active = await loop.run_in_executor(None, count_active_today)
 
     txt = (
-        "📊 *İstatistikler (UTC)*\n"
-        f"• Bugün aktif: *{active}*\n"
-        f"• Toplam kayıtlı: *{total}*"
+        "📊 *Bot data (UTC)*\n"
+        f"• Bugünki ulanyjy: *{active}*\n"
+        f"• Jemi ulanyjy: *{total}*"
     )
     await update.effective_message.reply_text(txt, parse_mode=ParseMode.MARKDOWN)
 
