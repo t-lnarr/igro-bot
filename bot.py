@@ -7,12 +7,13 @@ from typing import List
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.constants import ParseMode
 from telegram.ext import (
-    Application, CommandHandler, ContextTypes, MessageHandler, CallbackQueryHandler, filters
+    Application, CommandHandler, ContextTypes, MessageHandler,
+    CallbackQueryHandler, filters
 )
 
 # === Ortam değişkenleri ===
 TOKEN = os.getenv("BOT_TOKEN")
-CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME", "@igro_store_tm")  # Çekiliş için kanal
+CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME", "@igro_store_tm")
 ADMIN_IDS_ENV = os.getenv("ADMIN_IDS", "")
 ADMIN_IDS: List[int] = [int(x.strip()) for x in ADMIN_IDS_ENV.split(",") if x.strip().isdigit()]
 
@@ -41,7 +42,6 @@ def db_init():
         last_seen TEXT
     );
     """)
-    # çekilişe katılanlar için tablo
     conn.execute("""
     CREATE TABLE IF NOT EXISTS giveaway (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,6 +82,15 @@ def count_total_users() -> int:
     conn.close()
     return total
 
+def count_active_today() -> int:
+    today_utc = date.today()
+    start_of_day = datetime(today_utc.year, today_utc.month, today_utc.day, tzinfo=timezone.utc).isoformat()
+    conn = db_connect()
+    cur = conn.execute("SELECT COUNT(*) FROM users WHERE last_seen >= ?;", (start_of_day,))
+    active = cur.fetchone()[0]
+    conn.close()
+    return active
+
 def add_to_giveaway(user):
     now = datetime.now(timezone.utc).isoformat()
     conn = db_connect()
@@ -103,9 +112,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, upsert_user, user)
 
-    loop = asyncio.get_running_loop()
-    total_users = await loop.run_in_executor(None, count_total_users)
-
     keyboard = [
         [
             InlineKeyboardButton("🛒 Store Gir", web_app=WebAppInfo(url="https://igrostore.pythonanywhere.com")),
@@ -113,11 +119,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    text = f"🤖 IGRO Store Bot\n📊 {total_users} users\n\n🛍️ Satlyk akkauntlary görmek üçin aşakdaky knopgalary ulanyň 👇"
+    text = "🤖 IGRO Store Bot\n\n🛍️ Satlyk akkauntlary görmek üçin aşakdaky knopgalary ulanyň 👇"
     await update.effective_message.reply_text(text, reply_markup=reply_markup)
 
 
-# === Callback işlemleri ===
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -127,20 +132,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             member = await context.bot.get_chat_member(CHANNEL_USERNAME, user.id)
             if member.status in ("member", "administrator", "creator"):
-                # kullanıcı kanalda
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, add_to_giveaway, user)
                 await query.edit_message_text("🎉 Tebrikler! Çekilişe başarıyla katıldınız.")
             else:
                 await query.edit_message_text(f"⚠️ Katılmak için önce kanala abone olmalısın: {CHANNEL_USERNAME}")
         except Exception:
-            await query.edit_message_text(f"⚠️ Katılmak için önce kanala abone olmalısın: {CHANNEL_USERNAME}")
+            await query.edit_message_text(f"⚠️ Katılmak için önce kanala abone olmalysyn: {CHANNEL_USERNAME}")
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user:
-        await context.application.run_in_executor(None, upsert_user, user)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, upsert_user, user)
 
     txt = [
         "🆘 *Yardım*",
@@ -151,10 +156,70 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text("\n".join(txt), parse_mode=ParseMode.MARKDOWN)
 
 
+async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not user or not is_admin(user.id):
+        return
+
+    loop = asyncio.get_running_loop()
+    total = await loop.run_in_executor(None, count_total_users)
+    active = await loop.run_in_executor(None, count_active_today)
+
+    txt = (
+        "📊 *İstatistikler (UTC)*\n"
+        f"• Bugün aktif: *{active}*\n"
+        f"• Toplam kayıtlı: *{total}*"
+    )
+    await update.effective_message.reply_text(txt, parse_mode=ParseMode.MARKDOWN)
+
+
+async def sendall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not user or not is_admin(user.id):
+        return
+
+    if context.args:
+        message_text = " ".join(context.args).strip()
+    else:
+        await update.effective_message.reply_text("Kullanım: /sendall <mesaj>")
+        return
+
+    def get_all_user_ids():
+        conn = db_connect()
+        cur = conn.execute("SELECT user_id FROM users;")
+        rows = cur.fetchall()
+        conn.close()
+        return [r[0] for r in rows]
+
+    loop = asyncio.get_running_loop()
+    user_ids = await loop.run_in_executor(None, get_all_user_ids)
+
+    if not user_ids:
+        await update.effective_message.reply_text("Kayıtlı kullanıcı yok.")
+        return
+
+    ok = 0
+    fail = 0
+    preview_msg = await update.effective_message.reply_text(
+        f"📣 Gönderiliyor…\nHedef: {len(user_ids)} kullanıcı"
+    )
+
+    for uid in user_ids:
+        try:
+            await context.bot.send_message(chat_id=uid, text=message_text)
+            ok += 1
+        except Exception:
+            fail += 1
+        await asyncio.sleep(0.05)
+
+    await preview_msg.edit_text(f"✅ Gönderildi: {ok}\n❌ Hata: {fail}\n🎯 Toplam: {len(user_ids)}")
+
+
 async def echo_touch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user:
-        await context.application.run_in_executor(None, upsert_user, user)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, upsert_user, user)
 
 # === Uygulama ===
 def main():
@@ -163,6 +228,8 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("stats", stats_cmd))
+    app.add_handler(CommandHandler("sendall", sendall_cmd))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.ALL, echo_touch))
 
