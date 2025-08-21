@@ -17,10 +17,11 @@ CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME", "@igro_store_tm")
 ADMIN_IDS_ENV = os.getenv("ADMIN_IDS", "")
 ADMIN_IDS: List[int] = [int(x.strip()) for x in ADMIN_IDS_ENV.split(",") if x.strip().isdigit()]
 
+DB_PATH = os.getenv("DB_PATH", "bot.db")
+PARTICIPANTS_FILE = "participants.txt"
+
 if not TOKEN:
     raise RuntimeError("BOT_TOKEN environment variable'ı eksik!")
-
-DB_PATH = os.getenv("DB_PATH", "bot.db")
 
 # === DB yardımcıları ===
 def db_connect():
@@ -93,6 +94,7 @@ def count_active_today() -> int:
 
 def add_to_giveaway(user):
     now = datetime.now(timezone.utc).isoformat()
+    # DB kaydı
     conn = db_connect()
     conn.execute("""
         INSERT OR IGNORE INTO giveaway (user_id, username, joined_at)
@@ -100,6 +102,14 @@ def add_to_giveaway(user):
     """, (user.id, user.username, now))
     conn.commit()
     conn.close()
+
+    # Dosya kaydı
+    if not os.path.exists(PARTICIPANTS_FILE):
+        open(PARTICIPANTS_FILE, "w").close()
+    with open(PARTICIPANTS_FILE, "r+") as f:
+        lines = f.read().splitlines()
+        if user.username and user.username not in lines:
+            f.write(user.username + "\n")
 
 # === Yetki kontrolü ===
 def is_admin(user_id: int) -> bool:
@@ -138,7 +148,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await query.edit_message_text(f"⚠️ Katılmak için önce kanala abone olmalısın: {CHANNEL_USERNAME}")
         except Exception:
-            await query.edit_message_text(f"⚠️ Katılmak için önce kanala abone olmalysyn: {CHANNEL_USERNAME}")
+            await query.edit_message_text(f"⚠️ Katılmak için önce kanala abone olmalısın: {CHANNEL_USERNAME}")
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -152,6 +162,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /start – Menü butonlarını gönderir",
         "• /stats – (admin) günlük & toplam kullanıcı",
         "• /sendall <mesaj> – (admin) tüm kullanıcılara duyuru",
+        "• /participants – (admin) çekilişe katılanları gör"
     ]
     await update.effective_message.reply_text("\n".join(txt), parse_mode=ParseMode.MARKDOWN)
 
@@ -221,6 +232,25 @@ async def echo_touch(update: Update, context: ContextTypes.DEFAULT_TYPE):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, upsert_user, user)
 
+
+async def participants_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not user or not is_admin(user.id):
+        return
+
+    if not os.path.exists(PARTICIPANTS_FILE):
+        await update.message.reply_text("Henüz çekilişe katılan yok.")
+        return
+
+    with open(PARTICIPANTS_FILE, "r") as f:
+        lines = f.read().splitlines()
+
+    if not lines:
+        await update.message.reply_text("Henüz çekilişe katılan yok.")
+    else:
+        await update.message.reply_text("🎉 Çekilişe katılanlar:\n" + "\n".join(lines))
+
+
 # === Uygulama ===
 def main():
     db_init()
@@ -230,10 +260,10 @@ def main():
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("stats", stats_cmd))
     app.add_handler(CommandHandler("sendall", sendall_cmd))
+    app.add_handler(CommandHandler("participants", participants_cmd))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.ALL, echo_touch))
 
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
-    main()
