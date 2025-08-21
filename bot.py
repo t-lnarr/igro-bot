@@ -91,8 +91,8 @@ def is_admin(user_id: int) -> bool:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user:
-        # Kullanıcıyı DB'ye yaz
-        await context.application.run_in_executor(None, upsert_user, user)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, upsert_user, user)
 
     keyboard = [
         [InlineKeyboardButton("🛒 Store Gir", web_app=WebAppInfo(url="https://igrostore.pythonanywhere.com"))]
@@ -100,6 +100,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     text = "IGRO Store’a hoş geldiň! 👋\n\n🛍️ Satılık hesaplara göz atmak için butona tıkla."
     await update.effective_message.reply_text(text, reply_markup=reply_markup)
+
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
