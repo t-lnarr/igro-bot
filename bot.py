@@ -125,11 +125,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
             InlineKeyboardButton("🛒 Store Gir", web_app=WebAppInfo(url="https://igrostore.pythonanywhere.com")),
-            InlineKeyboardButton("🎁 Çekilişe Katıl", callback_data="join_giveaway")
+            InlineKeyboardButton("🎁 Konkursa Ýazyl", callback_data="join_giveaway")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    text = "🤖 IGRO Store Bot\n\n🛍️ Satlyk akkauntlary görmek üçin aşakdaky knopgalary ulanyň 👇"
+    text = "🤖 IGRO Store Bot\n\n🛍️ Satlyk akkauntlary görmek üçin ýa-da konkursa ýazylmak üçin aşakdaky knopgalary ulanyň 👇"
     await update.effective_message.reply_text(text, reply_markup=reply_markup)
 
 
@@ -144,11 +144,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if member.status in ("member", "administrator", "creator"):
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, add_to_giveaway, user)
-                await query.edit_message_text("🎉 Tebrikler! Çekilişe başarıyla katıldınız.")
+                await query.edit_message_text("🎉 Gutlaýas! Konkursa üstünlikli ýazyldyňyz.")
             else:
-                await query.edit_message_text(f"⚠️ Katılmak için önce kanala abone olmalısın: {CHANNEL_USERNAME}")
+                await query.edit_message_text(f"⚠️ Konkursa ýazylmak üçin hökman kanala goşulmaly: {CHANNEL_USERNAME}")
         except Exception:
-            await query.edit_message_text(f"⚠️ Katılmak için önce kanala abone olmalısın: {CHANNEL_USERNAME}")
+            await query.edit_message_text(f"⚠️ Konkursa ýazylmak üçin hökman kanala goşulmaly: {CHANNEL_USERNAME}")
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -158,11 +158,11 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await loop.run_in_executor(None, upsert_user, user)
 
     txt = [
-        "🆘 *Yardım*",
-        "• /start – Menü butonlarını gönderir",
-        "• /stats – (admin) günlük & toplam kullanıcı",
-        "• /sendall <mesaj> – (admin) tüm kullanıcılara duyuru",
-        "• /participants – (admin) çekilişe katılanları gör"
+        "🆘 *Kömek*",
+        "• /start – Menü knopgalar görkeziler",
+        "• /stats – (admin) günlik & jemi ulanyjylar",
+        "• /sendall <mesaj> – (admin) hemme ulanyjylara bildiriş",
+        "• /participants – (admin) konkursa gatnaşanlary gör"
     ]
     await update.effective_message.reply_text("\n".join(txt), parse_mode=ParseMode.MARKDOWN)
 
@@ -212,7 +212,7 @@ async def sendall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ok = 0
     fail = 0
     preview_msg = await update.effective_message.reply_text(
-        f"📣 Gönderiliyor…\nHedef: {len(user_ids)} kullanıcı"
+        f"📣 Ugradylýar…\nHedef: {len(user_ids)} kullanıcı"
     )
 
     for uid in user_ids:
@@ -223,7 +223,7 @@ async def sendall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             fail += 1
         await asyncio.sleep(0.05)
 
-    await preview_msg.edit_text(f"✅ Gönderildi: {ok}\n❌ Hata: {fail}\n🎯 Toplam: {len(user_ids)}")
+    await preview_msg.edit_text(f"✅ Ugradyldy: {ok}\n❌ Ýalňyş: {fail}\n🎯 Jemi: {len(user_ids)}")
 
 
 async def echo_touch(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -239,16 +239,16 @@ async def participants_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not os.path.exists(PARTICIPANTS_FILE):
-        await update.message.reply_text("Henüz çekilişe katılan yok.")
+        await update.message.reply_text("Intäk konkursa gatnaşan ýok.")
         return
 
     with open(PARTICIPANTS_FILE, "r") as f:
         lines = f.read().splitlines()
 
     if not lines:
-        await update.message.reply_text("Henüz çekilişe katılan yok.")
+        await update.message.reply_text("Intäk konkursa gatnaşan ýok.")
     else:
-        await update.message.reply_text("🎉 Çekilişe katılanlar:\n" + "\n".join(lines))
+        await update.message.reply_text("🎉 Konkursa gatnaşanlar:\n" + "\n".join(lines))
 
 
 # === Uygulama ===
