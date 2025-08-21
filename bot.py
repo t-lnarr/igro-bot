@@ -98,7 +98,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🛒 Store Gir", web_app=WebAppInfo(url="https://igrostore.pythonanywhere.com"))]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    text = "IGRO Store’a hoş geldiň! 👋\n\n🛍️ Satılık hesaplara göz atmak için butona tıkla."
+    text = "IGRO Store’a hoş geldiň! 👋\n\n🛍️ Satlyk akkauntlary görmek üçin knopga bas. 👇"
     await update.effective_message.reply_text(text, reply_markup=reply_markup)
 
 
@@ -122,8 +122,9 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user or not is_admin(user.id):
         return
 
-    total = await context.application.run_in_executor(None, count_total_users)
-    active = await context.application.run_in_executor(None, count_active_today)
+    loop = asyncio.get_running_loop()
+    total = await loop.run_in_executor(None, count_total_users)
+    active = await loop.run_in_executor(None, count_active_today)
 
     txt = (
         "📊 *İstatistikler (UTC)*\n"
@@ -131,6 +132,7 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• Toplam kayıtlı: *{total}*"
     )
     await update.effective_message.reply_text(txt, parse_mode=ParseMode.MARKDOWN)
+
 
 async def sendall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
