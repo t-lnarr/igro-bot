@@ -25,12 +25,14 @@ if not TOKEN:
 
 # === DB yardımcıları ===
 def db_connect():
+    """Veritabanı bağlantısını kurar."""
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
     return conn
 
 def db_init():
+    """Veritabanı tablolarını oluşturur."""
     conn = db_connect()
     conn.execute("""
     CREATE TABLE IF NOT EXISTS users (
@@ -43,6 +45,9 @@ def db_init():
         last_seen TEXT
     );
     """)
+    # giveaway tablosu için hem user_id hem de username kaydedilir.
+    # user_id, benzersiz bir katılımcıyı tanımlamak için kullanılır.
+    # username ise yarışma listesinde göstermek içindir.
     conn.execute("""
     CREATE TABLE IF NOT EXISTS giveaway (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,6 +60,7 @@ def db_init():
     conn.close()
 
 def upsert_user(user):
+    """Kullanıcı bilgilerini veritabanına ekler veya günceller."""
     now = datetime.now(timezone.utc).isoformat()
     conn = db_connect()
     conn.execute("""
@@ -77,6 +83,7 @@ def upsert_user(user):
     conn.close()
 
 def count_total_users() -> int:
+    """Toplam kullanıcı sayısını döndürür."""
     conn = db_connect()
     cur = conn.execute("SELECT COUNT(*) FROM users;")
     total = cur.fetchone()[0]
@@ -84,6 +91,7 @@ def count_total_users() -> int:
     return total
 
 def count_active_today() -> int:
+    """Bugün aktif olan kullanıcı sayısını döndürür."""
     today_utc = date.today()
     start_of_day = datetime(today_utc.year, today_utc.month, today_utc.day, tzinfo=timezone.utc).isoformat()
     conn = db_connect()
@@ -93,8 +101,9 @@ def count_active_today() -> int:
     return active
 
 def add_to_giveaway(user):
+    """Kullanıcıyı çekilişe ekler."""
     now = datetime.now(timezone.utc).isoformat()
-    # DB kaydı
+    # Veritabanı kaydı: user_id benzersiz olduğu için katılımcı tekrarlarını önler.
     conn = db_connect()
     conn.execute("""
         INSERT OR IGNORE INTO giveaway (user_id, username, joined_at)
@@ -103,16 +112,18 @@ def add_to_giveaway(user):
     conn.commit()
     conn.close()
 
-    # Dosya kaydı
-    if not os.path.exists(PARTICIPANTS_FILE):
-        open(PARTICIPANTS_FILE, "w").close()
-    with open(PARTICIPANTS_FILE, "r+") as f:
-        lines = f.read().splitlines()
-        if user.username and user.username not in lines:
-            f.write(user.username + "\n")
+    # Dosya kaydı: Sadece username varsa participants.txt dosyasına eklenir.
+    if user.username:
+        if not os.path.exists(PARTICIPANTS_FILE):
+            open(PARTICIPANTS_FILE, "w").close()
+        with open(PARTICIPANTS_FILE, "r+") as f:
+            lines = f.read().splitlines()
+            if user.username not in lines:
+                f.write(user.username + "\n")
 
 # === Yetki kontrolü ===
 def is_admin(user_id: int) -> bool:
+    """Kullanıcının yönetici olup olmadığını kontrol eder."""
     return user_id in ADMIN_IDS
 
 # === Komutlar ===
@@ -132,7 +143,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "🤖 IGRO Store Bot\n\n🛍️ Satlyk akkauntlary görmek üçin ýa-da konkursa ýazylmak üçin aşakdaky knopgalary ulanyň 👇"
     await update.effective_message.reply_text(text, reply_markup=reply_markup)
 
-
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -142,6 +152,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             member = await context.bot.get_chat_member(CHANNEL_USERNAME, user.id)
             if member.status in ("member", "administrator", "creator"):
+                # Kullanıcı kanala üye ise, çekilişe ekler
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, add_to_giveaway, user)
                 await query.edit_message_text("🎉 Gutlaýas! Konkursa üstünlikli ýazyldyňyz.")
@@ -149,7 +160,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text(f"⚠️ Konkursa ýazylmak üçin hökman kanala goşulmaly: {CHANNEL_USERNAME}")
         except Exception:
             await query.edit_message_text(f"⚠️ Konkursa ýazylmak üçin hökman kanala goşulmaly: {CHANNEL_USERNAME}")
-
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -166,7 +176,6 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.effective_message.reply_text("\n".join(txt), parse_mode=ParseMode.MARKDOWN)
 
-
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not user or not is_admin(user.id):
@@ -182,7 +191,6 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• Jemi ulanyjy: *{total}*"
     )
     await update.effective_message.reply_text(txt, parse_mode=ParseMode.MARKDOWN)
-
 
 async def sendall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -225,13 +233,11 @@ async def sendall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await preview_msg.edit_text(f"✅ Ugradyldy: {ok}\n❌ Ýalňyş: {fail}\n🎯 Jemi: {len(user_ids)}")
 
-
 async def echo_touch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, upsert_user, user)
-
 
 async def participants_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -240,10 +246,12 @@ async def participants_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     def get_all_participants():
         conn = db_connect()
-        cur = conn.execute("SELECT username, user_id FROM giveaway;")
+        # Sadece username'leri almak için sorguyu güncelliyoruz.
+        # Böylece dosya kaydı ve gösterim tutarlı olur.
+        cur = conn.execute("SELECT username FROM giveaway;")
         rows = cur.fetchall()
         conn.close()
-        return rows
+        return [r[0] for r in rows] # Sadece username'leri döndür
 
     loop = asyncio.get_running_loop()
     participants = await loop.run_in_executor(None, get_all_participants)
@@ -251,15 +259,14 @@ async def participants_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not participants:
         await update.message.reply_text("Intäk konkursa gatnaşan ýok.")
     else:
-        lines = []
-        for username, uid in participants:
-            if username:
-                lines.append(f"@{username}")
-            else:
-                lines.append(f"[id:{uid}]")  # username yoksa id yaz
-        await update.message.reply_text("🎉 Konkursa gatnaşanlar:\n" + "\n".join(lines))
-
-
+        # Boş olmayan username'leri "@" ile formatlayarak listeye ekle
+        lines = [f"@{p}" for p in participants if p]
+        
+        # Eğer hiç username yoksa, boş bir liste mesajı gösterir
+        if not lines:
+            await update.message.reply_text("Intäk konkursa gatnaşan ýok. (Username'i olmayan kullanıcılar)")
+        else:
+            await update.message.reply_text("🎉 Konkursa gatnaşanlar:\n" + "\n".join(lines))
 
 # === Uygulama ===
 def main():
