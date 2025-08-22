@@ -238,17 +238,27 @@ async def participants_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user or not is_admin(user.id):
         return
 
-    if not os.path.exists(PARTICIPANTS_FILE):
-        await update.message.reply_text("Intäk konkursa gatnaşan ýok.")
-        return
+    def get_all_participants():
+        conn = db_connect()
+        cur = conn.execute("SELECT username, user_id FROM giveaway;")
+        rows = cur.fetchall()
+        conn.close()
+        return rows
 
-    with open(PARTICIPANTS_FILE, "r") as f:
-        lines = f.read().splitlines()
+    loop = asyncio.get_running_loop()
+    participants = await loop.run_in_executor(None, get_all_participants)
 
-    if not lines:
+    if not participants:
         await update.message.reply_text("Intäk konkursa gatnaşan ýok.")
     else:
+        lines = []
+        for username, uid in participants:
+            if username:
+                lines.append(f"@{username}")
+            else:
+                lines.append(f"[id:{uid}]")  # username yoksa id yaz
         await update.message.reply_text("🎉 Konkursa gatnaşanlar:\n" + "\n".join(lines))
+
 
 
 # === Uygulama ===
