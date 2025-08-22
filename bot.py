@@ -246,12 +246,11 @@ async def participants_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     def get_all_participants():
         conn = db_connect()
-        # Sadece username'leri almak için sorguyu güncelliyoruz.
-        # Böylece dosya kaydı ve gösterim tutarlı olur.
-        cur = conn.execute("SELECT username FROM giveaway;")
+        # username ve user_id'yi birlikte çekecek şekilde sorgu güncellendi.
+        cur = conn.execute("SELECT username, user_id FROM giveaway;")
         rows = cur.fetchall()
         conn.close()
-        return [r[0] for r in rows] # Sadece username'leri döndür
+        return rows
 
     loop = asyncio.get_running_loop()
     participants = await loop.run_in_executor(None, get_all_participants)
@@ -259,14 +258,14 @@ async def participants_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not participants:
         await update.message.reply_text("Intäk konkursa gatnaşan ýok.")
     else:
-        # Boş olmayan username'leri "@" ile formatlayarak listeye ekle
-        lines = [f"@{p}" for p in participants if p]
+        lines = []
+        for username, uid in participants:
+            if username:
+                lines.append(f"@{username}")
+            else:
+                lines.append(f"[id:{uid}]") # username yoksa id yaz
         
-        # Eğer hiç username yoksa, boş bir liste mesajı gösterir
-        if not lines:
-            await update.message.reply_text("Intäk konkursa gatnaşan ýok. (Username'i olmayan kullanıcılar)")
-        else:
-            await update.message.reply_text("🎉 Konkursa gatnaşanlar:\n" + "\n".join(lines))
+        await update.message.reply_text("🎉 Konkursa gatnaşanlar:\n" + "\n".join(lines))
 
 # === Uygulama ===
 def main():
@@ -281,7 +280,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.ALL, echo_touch))
 
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.run_polling(allowed_updates=Update.ALL_TYPES, idle_timeout=30)
 
 if __name__ == "__main__":
     main()
