@@ -280,7 +280,8 @@ def main():
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.ALL, echo_touch))
 
-    app.run_polling(allowed_updates=Update.ALL_TYPES, idle_timeout=30)
+    # `idle_timeout` argümanı kaldırıldı.
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
