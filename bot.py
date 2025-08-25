@@ -76,35 +76,51 @@ def db_init():
     conn.close()
 
 def upsert_user(user):
-    """Kullanıcı bilgilerini veritabanına ekler veya günceller."""
     now = datetime.now(timezone.utc).isoformat()
     conn = db_connect()
-    conn.execute("""
-    INSERT INTO users (user_id, username, first_name, last_name, joined_at, last_seen)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET
-            username=excluded.username,
-            first_name=excluded.first_name,
-            last_name=excluded.last_name,
-            last_seen=excluded.last_seen
-    """ if not DATABASE_URL else """
-    INSERT INTO users (user_id, username, first_name, last_name, joined_at, last_seen)
-        VALUES (%s, %s, %s, %s, %s, %s)
-        ON CONFLICT (user_id) DO UPDATE SET
-            username=EXCLUDED.username,
-            first_name=EXCLUDED.first_name,
-            last_name=EXCLUDED.last_name,
-            last_seen=EXCLUDED.last_seen
-    """, (
-        user.id,
-        user.username,
-        user.first_name,
-        user.last_name,
-        now,
-        now
-    ))
+    cur = conn.cursor()
+
+    if DATABASE_URL:
+        # PostgreSQL
+        cur.execute("""
+            INSERT INTO users (user_id, username, first_name, last_name, joined_at, last_seen)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET
+                username=EXCLUDED.username,
+                first_name=EXCLUDED.first_name,
+                last_name=EXCLUDED.last_name,
+                last_seen=EXCLUDED.last_seen
+        """, (
+            user.id,
+            user.username,
+            user.first_name,
+            user.last_name,
+            now,
+            now
+        ))
+    else:
+        # SQLite
+        cur.execute("""
+            INSERT INTO users (user_id, username, first_name, last_name, joined_at, last_seen)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                username=excluded.username,
+                first_name=excluded.first_name,
+                last_name=excluded.last_name,
+                last_seen=excluded.last_seen
+        """, (
+            user.id,
+            user.username,
+            user.first_name,
+            user.last_name,
+            now,
+            now
+        ))
+
     conn.commit()
+    cur.close()
     conn.close()
+
 
 def count_total_users() -> int:
     conn = db_connect()
