@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime, timezone, date
 from typing import List
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo, ReplyKeyboardMarkup, KeyboardButton
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application, CommandHandler, ContextTypes, MessageHandler,
@@ -24,12 +24,11 @@ DATABASE_URL = os.getenv("DATABASE_URL")  # PostgreSQL URL
 if not TOKEN:
     raise RuntimeError("BOT_TOKEN environment variable'ı eksik!")
 
-# === Sabit klavye (her zaman görünen) ===
-MAIN_KB = ReplyKeyboardMarkup(
-    [[KeyboardButton("🛒 Store gir", web_app=WebAppInfo(url=STORE_URL)), KeyboardButton("📣 Kanala gir")]],
-    resize_keyboard=True,
-    is_persistent=True
-)
+# === Sabit inline keyboard (her mesajın altında) ===
+MAIN_KB = InlineKeyboardMarkup([
+    [InlineKeyboardButton("🛒 Store gir", web_app=WebAppInfo(url=STORE_URL))],
+    [InlineKeyboardButton("📣 Kanala gir", url=f"https://t.me/{CHANNEL_USERNAME.lstrip('@')}")]
+])
 
 # === DB yardımcıları ===
 def db_connect():
@@ -197,24 +196,21 @@ async def sendall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     for uid in user_ids:
         try:
-            await context.bot.send_message(chat_id=uid, text=message_text)
+            await context.bot.send_message(chat_id=uid, text=message_text, reply_markup=MAIN_KB)
             ok += 1
         except Exception:
             fail += 1
         await asyncio.sleep(0.05)
     await preview_msg.edit_text(f"✅ Ugradyldy: {ok}\n❌ Ýalňyş: {fail}\n🎯 Jemi: {len(user_ids)}")
 
-async def handle_channel_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """📣 Kanala gir butonuna basılınca direkt yönlendirme"""
-    channel_url = f"https://t.me/{CHANNEL_USERNAME.lstrip('@')}"
-    btn = InlineKeyboardMarkup([[InlineKeyboardButton("📣 Kanala geç", url=channel_url)]])
-    await update.effective_message.reply_text(" ", reply_markup=btn)
-
 async def echo_touch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, upsert_user, user)
+    # Her mesajdan sonra klavyeyi tekrar göster
+    if update.message:
+        await update.message.reply_text("👇 Menüden saýlaň:", reply_markup=MAIN_KB)
 
 # === Uygulama ===
 def main():
@@ -224,8 +220,7 @@ def main():
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("stats", stats_cmd))
     app.add_handler(CommandHandler("sendall", sendall_cmd))
-    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("Kanala gir|📣 Kanala gir"), handle_channel_button))
-    app.add_handler(MessageHandler(filters.ALL, echo_touch))
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, echo_touch))
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
