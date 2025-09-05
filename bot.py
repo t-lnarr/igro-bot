@@ -32,6 +32,7 @@ MAIN_KB = InlineKeyboardMarkup([
 
 # === DB yardımcıları ===
 def db_connect():
+    """Veritabanı bağlantısı kurar (PostgreSQL veya SQLite)."""
     if DATABASE_URL:
         import psycopg2
         return psycopg2.connect(DATABASE_URL)
@@ -41,6 +42,7 @@ def db_connect():
     return conn
 
 def db_init():
+    """Veritabanı tablosunu oluşturur (eğer yoksa)."""
     conn = db_connect()
     cur = conn.cursor()
     if DATABASE_URL:
@@ -72,38 +74,42 @@ def db_init():
     conn.close()
 
 def upsert_user(user):
+    """Kullanıcıyı veritabanına ekler veya bilgilerini günceller."""
     now = datetime.now(timezone.utc).isoformat()
     conn = db_connect()
     cur = conn.cursor()
-    if DATABASE_URL:
-        cur.execute("""
-            INSERT INTO users (user_id, username, first_name, last_name, joined_at, last_seen)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (user_id) DO UPDATE SET
-                username=EXCLUDED.username,
-                first_name=EXCLUDED.first_name,
-                last_name=EXCLUDED.last_name,
-                last_seen=EXCLUDED.last_seen
-        """, (
-            user.id, user.username, user.first_name, user.last_name, now, now
-        ))
-    else:
-        cur.execute("""
-            INSERT INTO users (user_id, username, first_name, last_name, joined_at, last_seen)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
-                username=excluded.username,
-                first_name=excluded.first_name,
-                last_name=excluded.last_name,
-                last_seen=excluded.last_seen
-        """, (
-            user.id, user.username, user.first_name, user.last_name, now, now
-        ))
-    conn.commit()
-    cur.close()
-    conn.close()
+    try:
+        if DATABASE_URL:
+            cur.execute("""
+                INSERT INTO users (user_id, username, first_name, last_name, joined_at, last_seen)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    username=EXCLUDED.username,
+                    first_name=EXCLUDED.first_name,
+                    last_name=EXCLUDED.last_name,
+                    last_seen=EXCLUDED.last_seen
+            """, (
+                user.id, user.username, user.first_name, user.last_name, now, now
+            ))
+        else:
+            cur.execute("""
+                INSERT INTO users (user_id, username, first_name, last_name, joined_at, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    username=excluded.username,
+                    first_name=excluded.first_name,
+                    last_name=excluded.last_name,
+                    last_seen=excluded.last_seen
+            """, (
+                user.id, user.username, user.first_name, user.last_name, now, now
+            ))
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
 
 def count_total_users() -> int:
+    """Toplam kullanıcı sayısını döndürür."""
     conn = db_connect()
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) FROM users")
@@ -113,6 +119,7 @@ def count_total_users() -> int:
     return total
 
 def count_active_today() -> int:
+    """Bugün aktif olan kullanıcı sayısını döndürür."""
     today = date.today().isoformat()
     conn = db_connect()
     cur = conn.cursor()
@@ -126,6 +133,7 @@ def count_active_today() -> int:
     return active
 
 def get_all_user_ids():
+    """Tüm kullanıcı ID'lerinin bir listesini döndürür."""
     conn = db_connect()
     cur = conn.cursor()
     cur.execute("SELECT user_id FROM users")
@@ -136,15 +144,21 @@ def get_all_user_ids():
 
 # === Yetki kontrolü ===
 def is_admin(user_id: int) -> bool:
+    """Bir kullanıcının admin olup olmadığını kontrol eder."""
     return user_id in ADMIN_IDS
+
+def update_user_activity(user):
+    """Kullanıcı aktivitesini arka planda, cevabı geciktirmeden günceller."""
+    if user:
+        loop = asyncio.get_running_loop()
+        # DÜZELTME: Veritabanı işlemini beklemeden arka planda çalıştır.
+        # Bu, botun ilk komutta bile anında cevap vermesini sağlar.
+        loop.create_task(loop.run_in_executor(None, upsert_user, user))
 
 # === Komutlar ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if user:
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, upsert_user, user)
-
+    """/start komutunu işler."""
+    update_user_activity(update.effective_user)
     text = (
         "🤖 IGRO Store Bot\n\n"
         "🛍️ Satlyk akkauntlary görmek üçin aşakdaky düwmeleri ulanyň.\n"
@@ -154,11 +168,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=MAIN_KB)
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if user:
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, upsert_user, user)
-
+    """/help komutunu işler."""
+    update_user_activity(update.effective_user)
     txt = [
         "🆘 *Kömek*",
         "• /start – Menü knopgalar görkeziler",
@@ -168,59 +179,82 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text("\n".join(txt), parse_mode=ParseMode.MARKDOWN, reply_markup=MAIN_KB)
 
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/stats komutunu işler (sadece admin)."""
     user = update.effective_user
     if not user or not is_admin(user.id):
+        # Admin olmayanlar için sessiz kalabilir veya bir mesaj gönderebilirsiniz.
         return
+
+    update_user_activity(user)
+
+    # Bu DB işlemleri hızlıdır ve sonuçları beklememiz gerekir.
     loop = asyncio.get_running_loop()
     total = await loop.run_in_executor(None, count_total_users)
     active = await loop.run_in_executor(None, count_active_today)
+
     await update.effective_message.reply_text(f"📈 Statistikalar\nJemi ulanyjy: {total}\nBugün aktiw: {active}", reply_markup=MAIN_KB)
 
 async def sendall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/sendall komutunu işler (sadece admin)."""
     user = update.effective_user
     if not user or not is_admin(user.id):
         return
-    message_text = " ".join(context.args) if context.args else None
-    if not message_text:
+
+    # DÜZELTME: Mesaj metnini, boşlukları koruyacak şekilde al.
+    # Bu, "hello   world" gibi mesajların doğru gönderilmesini sağlar.
+    if not context.args:
         await update.effective_message.reply_text("⚠️ Ulanylyşy: /sendall <mesaj>")
         return
+
+    message_text = update.effective_message.text.split(' ', 1)[1]
+
     loop = asyncio.get_running_loop()
     user_ids = await loop.run_in_executor(None, get_all_user_ids)
+
     if not user_ids:
         await update.effective_message.reply_text("⚠️ Ulanyjy ýok.")
         return
+
     ok = 0
     fail = 0
     preview_msg = await update.effective_message.reply_text(
-        f"📣 Ugradylýar…\nHedef: {len(user_ids)} kullanıcı"
+        f"📣 Ugradylýar…\nHedef: {len(user_ids)} ulanyjy"
     )
+
     for uid in user_ids:
         try:
             await context.bot.send_message(chat_id=uid, text=message_text, reply_markup=MAIN_KB)
             ok += 1
         except Exception:
             fail += 1
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.05)  # Telegram limitlerine takılmamak için küçük bir bekleme
+
     await preview_msg.edit_text(f"✅ Ugradyldy: {ok}\n❌ Ýalňyş: {fail}\n🎯 Jemi: {len(user_ids)}")
 
 async def echo_touch(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if user:
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, upsert_user, user)
-    # Her mesajdan sonra klavyeyi tekrar göster
+    """Komut olmayan mesajları işler ve kullanıcı aktivitesini günceller."""
+    update_user_activity(update.effective_user)
+    # Herhangi bir mesajdan sonra klavyeyi tekrar göster
     if update.message:
         await update.message.reply_text("👇 Menüden saýlaň:", reply_markup=MAIN_KB)
 
-# === Uygulama ===
+# === Uygulama Başlatma ===
 def main():
+    """Botu başlatır."""
     db_init()
+
     app = Application.builder().token(TOKEN).build()
+
+    # Komut işleyicileri
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("stats", stats_cmd))
     app.add_handler(CommandHandler("sendall", sendall_cmd))
-    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, echo_touch))
+
+    # Komut olmayan mesajlar için işleyici
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo_touch))
+
+    print("Bot işleýär...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
