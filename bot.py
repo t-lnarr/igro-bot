@@ -151,9 +151,9 @@ def update_user_activity(user):
     """Kullanıcı aktivitesini arka planda, cevabı geciktirmeden günceller."""
     if user:
         loop = asyncio.get_running_loop()
-        # DÜZELTME: Veritabanı işlemini beklemeden arka planda çalıştır.
-        # Bu, botun ilk komutta bile anında cevap vermesini sağlar.
-        loop.create_task(loop.run_in_executor(None, upsert_user, user))
+        # DÜZELTME: `create_task` sarmalayıcısı kaldırıldı.
+        # `run_in_executor` zaten görevi arka plana zamanlar.
+        loop.run_in_executor(None, upsert_user, user)
 
 # === Komutlar ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -184,14 +184,14 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user or not is_admin(user.id):
         # Admin olmayanlar için sessiz kalabilir veya bir mesaj gönderebilirsiniz.
         return
-
+    
     update_user_activity(user)
-
+    
     # Bu DB işlemleri hızlıdır ve sonuçları beklememiz gerekir.
     loop = asyncio.get_running_loop()
     total = await loop.run_in_executor(None, count_total_users)
     active = await loop.run_in_executor(None, count_active_today)
-
+    
     await update.effective_message.reply_text(f"📈 Statistikalar\nJemi ulanyjy: {total}\nBugün aktiw: {active}", reply_markup=MAIN_KB)
 
 async def sendall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -205,22 +205,22 @@ async def sendall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.effective_message.reply_text("⚠️ Ulanylyşy: /sendall <mesaj>")
         return
-
+    
     message_text = update.effective_message.text.split(' ', 1)[1]
 
     loop = asyncio.get_running_loop()
     user_ids = await loop.run_in_executor(None, get_all_user_ids)
-
+    
     if not user_ids:
         await update.effective_message.reply_text("⚠️ Ulanyjy ýok.")
         return
-
+        
     ok = 0
     fail = 0
     preview_msg = await update.effective_message.reply_text(
         f"📣 Ugradylýar…\nHedef: {len(user_ids)} ulanyjy"
     )
-
+    
     for uid in user_ids:
         try:
             await context.bot.send_message(chat_id=uid, text=message_text, reply_markup=MAIN_KB)
@@ -228,7 +228,7 @@ async def sendall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             fail += 1
         await asyncio.sleep(0.05)  # Telegram limitlerine takılmamak için küçük bir bekleme
-
+        
     await preview_msg.edit_text(f"✅ Ugradyldy: {ok}\n❌ Ýalňyş: {fail}\n🎯 Jemi: {len(user_ids)}")
 
 async def echo_touch(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -242,20 +242,21 @@ async def echo_touch(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     """Botu başlatır."""
     db_init()
-
+    
     app = Application.builder().token(TOKEN).build()
-
+    
     # Komut işleyicileri
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("stats", stats_cmd))
     app.add_handler(CommandHandler("sendall", sendall_cmd))
-
+    
     # Komut olmayan mesajlar için işleyici
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo_touch))
-
-    print("Bot işleýär...")
+    
+    print("Bot işleýar...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
+
