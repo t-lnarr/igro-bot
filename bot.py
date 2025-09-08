@@ -45,33 +45,35 @@ def db_init():
     """Veritabanı tablosunu oluşturur (eğer yoksa)."""
     conn = db_connect()
     cur = conn.cursor()
-    if DATABASE_URL:
-        cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id BIGSERIAL PRIMARY KEY,
-            user_id BIGINT UNIQUE,
-            username TEXT,
-            first_name TEXT,
-            last_name TEXT,
-            joined_at TEXT,
-            last_seen TEXT
-        );
-        """)
-    else:
-        cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER UNIQUE,
-            username TEXT,
-            first_name TEXT,
-            last_name TEXT,
-            joined_at TEXT,
-            last_seen TEXT
-        );
-        """)
-    conn.commit()
-    cur.close()
-    conn.close()
+    try:
+        if DATABASE_URL:
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT UNIQUE,
+                username TEXT,
+                first_name TEXT,
+                last_name TEXT,
+                joined_at TEXT,
+                last_seen TEXT
+            );
+            """)
+        else:
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER UNIQUE,
+                username TEXT,
+                first_name TEXT,
+                last_name TEXT,
+                joined_at TEXT,
+                last_seen TEXT
+            );
+            """)
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
 
 def upsert_user(user):
     """Kullanıcıyı veritabanına ekler veya bilgilerini günceller."""
@@ -112,34 +114,42 @@ def count_total_users() -> int:
     """Toplam kullanıcı sayısını döndürür."""
     conn = db_connect()
     cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM users")
-    total = cur.fetchone()[0]
-    cur.close()
-    conn.close()
+    try:
+        cur.execute("SELECT COUNT(*) FROM users")
+        total = cur.fetchone()[0]
+    finally:
+        cur.close()
+        conn.close()
     return total
 
 def count_active_today() -> int:
     """Bugün aktif olan kullanıcı sayısını döndürür."""
-    today = date.today().isoformat()
+    # HATA DÜZELTMESİ: Veritabanındaki UTC zaman damgalarıyla tutarlılığı sağlamak için
+    # sunucunun yerel tarihi yerine bugünün UTC tarihini kullanıyoruz.
+    today_utc = datetime.now(timezone.utc).date().isoformat()
     conn = db_connect()
     cur = conn.cursor()
-    if DATABASE_URL:
-        cur.execute("SELECT COUNT(*) FROM users WHERE left(last_seen, 10)=%s", (today,))
-    else:
-        cur.execute("SELECT COUNT(*) FROM users WHERE substr(last_seen, 1, 10)=?", (today,))
-    active = cur.fetchone()[0]
-    cur.close()
-    conn.close()
+    try:
+        if DATABASE_URL:
+            cur.execute("SELECT COUNT(*) FROM users WHERE left(last_seen, 10)=%s", (today_utc,))
+        else:
+            cur.execute("SELECT COUNT(*) FROM users WHERE substr(last_seen, 1, 10)=?", (today_utc,))
+        active = cur.fetchone()[0]
+    finally:
+        cur.close()
+        conn.close()
     return active
 
 def get_all_user_ids():
     """Tüm kullanıcı ID'lerinin bir listesini döndürür."""
     conn = db_connect()
     cur = conn.cursor()
-    cur.execute("SELECT user_id FROM users")
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+    try:
+        cur.execute("SELECT user_id FROM users")
+        rows = cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
     return [r[0] for r in rows]
 
 # === Yetki kontrolü ===
@@ -151,8 +161,6 @@ def update_user_activity(user):
     """Kullanıcı aktivitesini arka planda, cevabı geciktirmeden günceller."""
     if user:
         loop = asyncio.get_running_loop()
-        # DÜZELTME: `create_task` sarmalayıcısı kaldırıldı.
-        # `run_in_executor` zaten görevi arka plana zamanlar.
         loop.run_in_executor(None, upsert_user, user)
 
 # === Komutlar ===
@@ -182,12 +190,10 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/stats komutunu işler (sadece admin)."""
     user = update.effective_user
     if not user or not is_admin(user.id):
-        # Admin olmayanlar için sessiz kalabilir veya bir mesaj gönderebilirsiniz.
         return
     
     update_user_activity(user)
     
-    # Bu DB işlemleri hızlıdır ve sonuçları beklememiz gerekir.
     loop = asyncio.get_running_loop()
     total = await loop.run_in_executor(None, count_total_users)
     active = await loop.run_in_executor(None, count_active_today)
@@ -200,8 +206,6 @@ async def sendall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user or not is_admin(user.id):
         return
 
-    # DÜZELTME: Mesaj metnini, boşlukları koruyacak şekilde al.
-    # Bu, "hello   world" gibi mesajların doğru gönderilmesini sağlar.
     if not context.args:
         await update.effective_message.reply_text("⚠️ Ulanylyşy: /sendall <mesaj>")
         return
@@ -227,14 +231,13 @@ async def sendall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ok += 1
         except Exception:
             fail += 1
-        await asyncio.sleep(0.05)  # Telegram limitlerine takılmamak için küçük bir bekleme
+        await asyncio.sleep(0.05)
         
     await preview_msg.edit_text(f"✅ Ugradyldy: {ok}\n❌ Ýalňyş: {fail}\n🎯 Jemi: {len(user_ids)}")
 
 async def echo_touch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Komut olmayan mesajları işler ve kullanıcı aktivitesini günceller."""
     update_user_activity(update.effective_user)
-    # Herhangi bir mesajdan sonra klavyeyi tekrar göster
     if update.message:
         await update.message.reply_text("👇 Menüden saýlaň:", reply_markup=MAIN_KB)
 
@@ -245,13 +248,11 @@ def main():
     
     app = Application.builder().token(TOKEN).build()
     
-    # Komut işleyicileri
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("stats", stats_cmd))
     app.add_handler(CommandHandler("sendall", sendall_cmd))
     
-    # Komut olmayan mesajlar için işleyici
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo_touch))
     
     print("Bot işleýar...")
@@ -259,4 +260,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
